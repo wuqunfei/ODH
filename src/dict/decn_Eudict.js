@@ -30,5 +30,6 @@ class Decn_Eudict {
         if (terms.length == 0) {
             return null;
         }
+
     }
 }
