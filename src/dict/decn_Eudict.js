@@ -20,14 +20,33 @@ class Decn_Eudict {
 
     async findTerm(word) {
         this.word = word;
-        if (!word) {
+        if (!word) return null;
+
+        let base = 'http://www.esdict.cn/dicts/prefix/';
+        let url = base + encodeURIComponent(word);
+        try {
+            let terms = JSON.parse(await api.fetch(url));
+            if (terms.length == 0) return null;
+            terms = terms.filter(term => term.value && term.recordid && term.recordtype != 'CG');
+            terms = terms.slice(0, 2); //max 2 results;
+            let queries = terms.map(term => this.findEudict(`http://www.esdict.cn/dicts/es/${term.value}?recordid=${term.recordid}`));
+            let results = await Promise.all(queries);
+            return [].concat(...results).filter(x => x);
+        } catch (err) {
             return null;
         }
-        let results = await Promise.all([this.queryWord(word)]);
-        return [].concat(...results).filter(x => x);
     }
 
-    async queryWord(word) {
+    removeTags(elem, name) {
+        let tags = elem.querySelectorAll(name);
+        tags.forEach(x => {
+            x.outerHTML = '';
+        });
+    }
+
+    async findEudict(url) {
+        let notes = [];
+
         function T(node) {
             if (!node)
                 return '';
@@ -35,31 +54,58 @@ class Decn_Eudict {
                 return node.innerText.trim();
         }
 
-        let base = 'http://www.godic.net/dicts/de/';
-        let url = base + encodeURIComponent(word);
-        let notes = [];
-        let doc = "";
-        let parser = new DOMParser();
+        let doc = '';
         try {
-            let response = api.fetch(url)
-            doc = parser.parseFromString(response, 'text/html');
-        } catch (error) {
-            console.log("Request Error: %s", error)
-            return notes;
+            let data = await api.fetch(url);
+            let parser = new DOMParser();
+            doc = parser.parseFromString(data, 'text/html');
+        } catch (err) {
+            return [];
         }
 
-        let headSection = doc.querySelector('#dict-body>#exp-head');
-        if (!headSection) return null;
-        let expression = T(headSection.querySelector('.word'));
+        let headsection = doc.querySelector('#dict-body>#exp-head');
+        if (!headsection) return null;
+        let expression = T(headsection.querySelector('.word'));
         if (!expression) return null;
-        let reading = T(headSection.querySelector('.Phonitic'));
+        let reading = T(headsection.querySelector('.Phonitic'));
+
+        let extrainfo = '';
+        let cets = headsection.querySelectorAll('.tag');
+        for (const cet of cets) {
+            extrainfo += `<span class="cet">${T(cet)}</span>`;
+        }
+
+        let audios = [];
+        try {
+            audios[0] = 'http://api.frdic.com/api/v2/speech/speakweb?' + headsection.querySelector('.voice-js').dataset.rel;
+        } catch (err) {
+            audios = [];
+        }
+
+        let content = doc.querySelector('#ExpFCChild') || '';
+        if (!content) return [];
+        this.removeTags(content, 'script');
+        this.removeTags(content, '#word-thumbnail-image');
+        this.removeTags(content, '[style]');
+        this.removeTags(content.parentNode, '#ExpFCChild>br');
+        let anchor = content.querySelector('a');
+        if (anchor) {
+            let link = 'http://www.esdict.cn' + anchor.getAttribute('href');
+            anchor.setAttribute('href', link);
+            anchor.setAttribute('target', '_blank');
+        }
+        content.innerHTML = content.innerHTML.replace(/<p class="exp">(.+?)<\/p>/gi, '<span class="exp">$1</span>');
+        content.innerHTML = content.innerHTML.replace(/<span class="exp"><br>/gi, '<span class="exp">');
+        content.innerHTML = content.innerHTML.replace(/<span class="eg"><br>/gi, '<span class="eg">');
+
         let css = this.renderCSS();
-
-
         notes.push({
             css,
             expression,
-            reading
+            reading,
+            extrainfo,
+            definitions: [content.innerHTML],
+            audios
         });
         return notes;
     }
@@ -79,6 +125,4 @@ class Decn_Eudict {
 
         return css;
     }
-
-
 }
