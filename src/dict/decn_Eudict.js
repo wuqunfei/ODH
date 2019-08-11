@@ -55,6 +55,7 @@ class Decn_Eudict {
         let reading = T(headSection.querySelector('.Phonitic'));
         let css = this.renderCSS();
 
+
         notes.push({
             css,
             expression,
